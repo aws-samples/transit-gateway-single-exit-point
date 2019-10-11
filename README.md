@@ -8,10 +8,10 @@ The files contained here are as follows:
 
 |File                                    | Description                                                                 |
 |----------------------------------------|-----------------------------------------------------------------------------|
-|transitgateway-egress-solution.yaml     |The cloudformation template to create the solution in the blog               |
-|index.py                                |The python code to update VPC route tables                                   |
-|crhelper.py                             |Some additional python code to help with logging runtime info to cloudwatch  |
-|requirements.txt                        |The libraries required by the python code, including all dependencies        |
+|`transitgateway-egress-solution.yaml`   |The cloudformation template to create the solution in the blog               |
+|`index.py`                              |The python code to update VPC route tables                                   |
+|`crhelper.py`                           |Some additional python code to help with logging runtime info to cloudwatch  |
+|`requirements.txt`                      |The libraries required by the python code, including all dependencies        |
 
 The cloudformation automatically creates the solution highlighted in the blog, and the python code will populate the VPC route table with the correct routes after creation of the transit gateway attachments, as that function is not yet supported within cloudformation.
 
