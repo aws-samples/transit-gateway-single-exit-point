@@ -15,7 +15,7 @@ The files contained here are as follows:
 
 The cloudformation automatically creates the solution highlighted in the blog, and the python code will populate the VPC route table with the correct routes after creation of the transit gateway attachments, as that function is not yet supported within cloudformation.
 
-The python code is intended to be run as a lambda custom resource, called by the cloudformation template. In order to create the package for the custom resource, you will need to zip up the two python files here (index.py and crhelper.py) along with the libraries that are imported by that code. 
+The python code is intended to be run as a lambda custom resource, called by the cloudformation template. In order to create the package for the custom resource, you will need to zip up the two python files here (`index.py` and `crhelper.py`) along with the libraries that are imported by that code. 
 
 These libraries are listed within the requirements.txt file, which can be used as part of a pip install to create the entire package.
 
@@ -30,9 +30,9 @@ For the uninitiated, here is what i did to create the lambda package:
 5. I downloaded the two python files and moved them into the target folder
 6. I created a virtual environment, using the command `virtualenv venv`
 7. I started that environment, using the command `source venv/bin/activate`. This just makes sure you are installing libraries into a clean environment, rather than depending on anything that is already installed on your laptop.
-8. I then put all the libraries I needed into the target folder, using the command `pip install -r requirements.txt -t <./folder_name>`
-9. Now for a cleanup. I deactivated the virtual environment using the command `deactivate` and then deleted the folder venv that had been created in my working directory.
-10. Lastly, I zipped up the contents of the target folder ready to deploy to an S3 bucket. It's really important that you don't zip the target folder, but rather, go into the target folder, and then zip everything from inside it. I did this using the commands 
+8. I then put all the libraries I needed into the target folder, using the command `pip install -r requirements.txt -t ./<folder_name>`
+9. Now for a cleanup. I deactivated the virtual environment using the command `deactivate` and then deleted the folder `venv` that had been created in my working directory.
+10. Lastly, I zipped up the contents of the target folder ready to deploy to an S3 bucket. It's really important that you don't zip the target folder `<folder_name>`, but rather, go into the target folder, and then zip everything from inside it. I did this using the commands 
 ```
 cd <folder_name>
 zip -r <lambda-package-name>.zip *
