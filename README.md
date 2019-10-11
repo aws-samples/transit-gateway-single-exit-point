@@ -30,7 +30,10 @@ For the uninitiated, here is what i did to create the lambda package:
 5. I downloaded the two python files and moved them into the target folder
 6. I created a virtual environment, using the command `virtualenv venv`
 7. I started that environment, using the command `source venv/bin/activate`. This just makes sure you are installing libraries into a clean environment, rather than depending on anything that is already installed on your laptop.
-8. I then put all the libraries I needed into the target folder, using the command `pip install -r requirements.txt -t ./<folder_name>`
+8. I then put all the libraries I needed into the target folder, using the command
+```
+pip install -r requirements.txt -t ./<folder_name>
+```
 9. Now for a cleanup. I deactivated the virtual environment using the command `deactivate` and then deleted the folder `venv` that had been created in my working directory.
 10. Lastly, I zipped up the contents of the target folder ready to deploy to an S3 bucket. It's really important that you don't zip the target folder `<folder_name>`, but rather, go into the target folder, and then zip everything from inside it. I did this using the commands 
 ```
