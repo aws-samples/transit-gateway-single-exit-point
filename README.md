@@ -2,11 +2,18 @@
 
 ### Introduction
 
-The cloudformation and python script in this project are intended to be used in support of the AWS blog article here:
+The cloudformation and python scripts in this project are intended to be used in support of the AWS blog article here:
+
+The files contained here are as follows:
+
+* transitgateway-egress-solution.yaml -   The cloudformation template to create the solution in the blog
+* index.py -                              The python code to update VPC route tables
+* crhelper.py -                           Some additional python code to help with logging runtime info to cloudwatch
+* requirements.txt -                      The libraries required by the python code, including all dependencies
 
 The cloudformation automatically creates the solution highlighted in the blog, and the python code will populate the VPC route table with the correct routes after creation of the transit gateway attachments, as that function is not yet supported within cloudformation.
 
-The python code is intended to be run as a lambda custom resource, called by the cloudformation. In order to create the package for the custom resource, you will need to zip up the two python files here (index.py and crhelper.py) along with the libraries that are imported by that code. 
+The python code is intended to be run as a lambda custom resource, called by the cloudformation template. In order to create the package for the custom resource, you will need to zip up the two python files here (index.py and crhelper.py) along with the libraries that are imported by that code. 
 
 These libraries are listed within the requirements.txt file, which can be used as part of a pip install to create the entire package.
 
