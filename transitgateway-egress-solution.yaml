@@ -1,0 +1,612 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: The template creates TGW & an Egress VPC for internet.
+
+  It is a heavily modified version of the original template, created by shkahma@ which can be found here
+  https://github.com/aws-samples/aws-transit-gateway-egress-vpc-demo
+
+  In order to add routes to the VPC route tables, a lambda function needs to be called as CloudFormation
+  cannot implement that function at present. To do this, a package containing all the appropriate libraries
+  plus the python code is zipped up and placed in an S3 bucket. A custom resource then retrieves that zipped
+  file and deploys it via lambda.
+
+  Please make sure that you have created the bucket and uploaded the package file before running the CloudFormation.
+
+  Also make sure that the names are correct. These can be adjusted if necassary in the parameters default section,
+  or can be entered at run time.
+
+Parameters:
+
+  S3BucketName:
+    Type: String
+    Default: 'your-lambda-functions'
+
+  LambdaPackageName:
+    Type: String
+    Default: 'update-route-table.zip'
+
+  AppCidr:
+    Description: Default route for adding to app VPCs route tables
+    Type: String
+    Default: '0.0.0.0/0'
+
+  EgressPublicCidr:
+    Description: CIDR range to be added to public egress VPC route table
+    Type: String
+    Default: '10.0.0.0/8'
+
+
+Resources:
+
+#egress vpc and subnet creation
+
+  EgressVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      Tags:
+        - Key: Name
+          Value: Egress-VPC
+
+  PublicEgressVpcSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      CidrBlock: 192.168.1.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Public-AZ1
+
+  PublicEgressVpcSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      CidrBlock: 192.168.2.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Public-AZ2
+
+  PrivateEgressSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      CidrBlock: 192.168.3.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Private-AZ1
+
+  PrivateEgressSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      CidrBlock: 192.168.4.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Private-AZ2
+
+#igw and NAT gw creation
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      InternetGatewayId: !Ref 'InternetGateway'
+  IPAddress1:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachIGW
+    Properties:
+      Domain: vpc
+
+# you only need the second EIP if you deploy 2 NAT gateways. The cloudformation for that is included here, but commented out.
+# this means that the cloudformation matches the blog post, but you can edit it to create 2 NAT gateways.
+
+#  IPAddress2:
+#    Type: AWS::EC2::EIP
+#    DependsOn: AttachIGW
+#    Properties:
+#      Domain: vpc
+
+  NATGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt IPAddress1.AllocationId
+      SubnetId: !Ref PublicEgressVpcSubnet1
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+
+# removed as this is not included in the blog post
+
+#  NATGateway2:
+#    Type: AWS::EC2::NatGateway
+#    Properties:
+#      AllocationId: !GetAtt IPAddress2.AllocationId
+#      SubnetId: !Ref PublicEgressVpcSubnet2
+#      Tags:
+#        - Key: Application
+#          Value: !Ref 'AWS::StackId'
+
+
+
+#Egress route table configuration
+
+  EgressRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Public-RT
+  PrivateEgressRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'EgressVPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Egress-Private-RT-AZ1
+
+# This would be needed if you had 2 NAT gateways.
+
+#  PrivateEgressRouteTable2:
+#    Type: AWS::EC2::RouteTable
+#    Properties:
+#      VpcId: !Ref 'EgressVPC'
+#      Tags:
+#        - Key: Application
+#          Value: !Ref 'AWS::StackId'
+#        - Key: Name
+#          Value: Egress-Private-RT-AZ2
+
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref 'EgressRouteTable'
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref 'InternetGateway'
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PublicEgressVpcSubnet1'
+      RouteTableId: !Ref 'EgressRouteTable'
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PublicEgressVpcSubnet2'
+      RouteTableId: !Ref 'EgressRouteTable'
+
+  PrivateEgressRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref 'PrivateEgressRouteTable1'
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref 'NATGateway1'
+
+# This would be needed if you had 2 NAT gateways.
+
+#  PrivateEgressRoute2:
+#    Type: AWS::EC2::Route
+#    DependsOn: AttachIGW
+#    Properties:
+#      RouteTableId: !Ref 'PrivateEgressRouteTable2'
+#      DestinationCidrBlock: 0.0.0.0/0
+#      NatGatewayId: !Ref 'NATGateway2'
+
+  PrivateEgressRouteTable1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PrivateEgressSubnet1'
+      RouteTableId: !Ref 'PrivateEgressRouteTable1'
+  PrivateEgressRouteTable2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PrivateEgressSubnet2'
+      RouteTableId: !Ref 'PrivateEgressRouteTable1'
+#      RouteTableId: !Ref 'PrivateEgressRouteTable2'    # replace the previous line with this association if you have 2 NAT gateways.
+
+# App vpc and subnet creation
+
+  App1VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App1-VPC
+  App1Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'App1VPC'
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App1-Private-AZ1
+  App1Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'App1VPC'
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App1-Private-AZ2
+  App1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'App1VPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App1-PrivateRouteTable
+  App1Subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'App1Subnet1'
+      RouteTableId: !Ref 'App1RouteTable'
+  App1Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'App1Subnet2'
+      RouteTableId: !Ref 'App1RouteTable'
+
+  App2VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App2-VPC
+  App2Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'App2VPC'
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App2-Private-AZ1
+  App2Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 'App2VPC'
+      CidrBlock: 10.1.2.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App2-Private-AZ2
+  App2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'App2VPC'
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: App2-PrivateRouteTable
+  App2SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'App2Subnet1'
+      RouteTableId: !Ref 'App2RouteTable'
+  App2Subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'App2Subnet2'
+      RouteTableId: !Ref 'App2RouteTable'
+
+
+#transit gateway creation
+
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties:
+      AutoAcceptSharedAttachments: enable
+      DefaultRouteTableAssociation: "disable"
+      DefaultRouteTablePropagation: "disable"
+      Description: A transit gateway to support a single egress subnet
+      Tags:
+        - Key: Name
+          Value: TGW-Internet
+
+
+# attach subnets to TGW
+
+  EgressVpcAttachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    Properties:
+      SubnetIds:
+        - !Ref 'PrivateEgressSubnet1'
+        - !Ref 'PrivateEgressSubnet2'
+      Tags:
+        - Key: Name
+          Value: Egress-Attachment
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref EgressVPC
+  App1Attachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    Properties:
+      SubnetIds:
+        - !Ref 'App1Subnet1'
+        - !Ref 'App1Subnet2'
+      Tags:
+        - Key: Name
+          Value: App1-Attachment
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref App1VPC
+  App2Attachment:
+    Type: "AWS::EC2::TransitGatewayAttachment"
+    Properties:
+      SubnetIds:
+        - !Ref 'App2Subnet1'
+        - !Ref 'App2Subnet2'
+      Tags:
+        - Key: Name
+          Value: App2-Attachment
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref App2VPC
+
+#define TGW route tables
+
+  EgressTransitGatewayRouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Egress-RouteTable
+      TransitGatewayId: !Ref TransitGateway
+
+  AppTransitGatewayRouteTable:
+    Type: "AWS::EC2::TransitGatewayRouteTable"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: App-RouteTable
+      TransitGatewayId: !Ref TransitGateway
+
+#add a default route and black hole to the app route table
+
+  AppDefaultTGWRoute:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      TransitGatewayAttachmentId: !Ref EgressVpcAttachment
+      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+
+  AppBlackhole10Route:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    Properties:
+      Blackhole: Yes
+      DestinationCidrBlock: 10.0.0.0/8
+      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+
+  AppBlackhole172Route:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    Properties:
+      Blackhole: Yes
+      DestinationCidrBlock: 172.16.0.0/12
+      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+
+# We have not added a 192.168/16 black hole as for testing you may want to put an instance in the public subnet.
+# However, if you are only using the egress vpc as a route out, with a NAT gateway or similar proxy/NAT function,
+# then you can add the bloack hole for 192.168/16 as well
+
+#  AppBlackhole192Route:
+#    Type: "AWS::EC2::TransitGatewayRoute"
+#    Properties:
+#      Blackhole: Yes
+#      DestinationCidrBlock: 192.168.0.0/16
+#      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+
+  App1Route:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    Properties:
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayAttachmentId: !Ref App1Attachment
+      TransitGatewayRouteTableId: !Ref EgressTransitGatewayRouteTable
+
+  App2Route:
+    Type: "AWS::EC2::TransitGatewayRoute"
+    Properties:
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayAttachmentId: !Ref App2Attachment
+      TransitGatewayRouteTableId: !Ref EgressTransitGatewayRouteTable
+
+
+#TGW associations
+
+  EgressVpcTgwAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref EgressVpcAttachment
+      TransitGatewayRouteTableId: !Ref EgressTransitGatewayRouteTable
+  App1VpcTgwAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref App1Attachment
+      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+  App2VpcTgwAssociation:
+    Type: "AWS::EC2::TransitGatewayRouteTableAssociation"
+    Properties:
+      TransitGatewayAttachmentId: !Ref App2Attachment
+      TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
+
+# This code adds routes to VPC route tables using lambda since cloudformation can't add a transit gateway as a destination.
+# First create the role that will run the lambda code.
+
+  LambdaCustomRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        -
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - ec2:Describe*
+                  - ec2:CreateRoute
+                  - ec2:ReplaceRoute
+                  - ec2:DeleteRoute
+                  - ec2:UpdateRouteTable
+                  - ec2:AssociateRouteTable
+                  - ec2:ReplaceRouteTableAssociation
+                  - ec2:DisassociateRouteTable
+                  - logs:*
+                  - ram:*
+                Resource: "*"
+          PolicyName: LambdaPolicyTransitGateway
+
+# Then define the function, and pass it the variables to update the route table.
+# I have repeated this 3 times for the 3 route tables that need modifying, but you could edit the actual python Code
+# To pass the variables for all route tables in one go, and have the code cycle through the operation.
+
+  UpdateApp1RouteTable:
+      Type: AWS::Lambda::Function
+      DependsOn: App1Attachment
+      Properties:
+        Description: Update App Route Tables
+        Handler: index.handler
+        Code:
+          S3Bucket: !Ref S3BucketName
+          S3Key: !Ref LambdaPackageName
+        MemorySize: 128
+        Role: !GetAtt LambdaCustomRole.Arn
+        Runtime: python3.6
+        Timeout: 30
+        Environment:
+          Variables:
+            TRANSITGTW: !Ref TransitGateway
+            RT: !Ref App1RouteTable
+            CIDR: !Ref AppCidr
+
+  CustomResourceUpdateApp1RT:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt UpdateApp1RouteTable.Arn
+
+  UpdateApp2RouteTable:
+      Type: AWS::Lambda::Function
+      DependsOn: App2Attachment
+      Properties:
+        Description: Update App Route Tables
+        Handler: index.handler
+        Code:
+          S3Bucket: !Ref S3BucketName
+          S3Key: !Ref LambdaPackageName
+        MemorySize: 128
+        Role: !GetAtt LambdaCustomRole.Arn
+        Runtime: python3.6
+        Timeout: 30
+        Environment:
+          Variables:
+            TRANSITGTW: !Ref TransitGateway
+            RT: !Ref App2RouteTable
+            CIDR: !Ref AppCidr
+
+  CustomResourceUpdateApp2RT:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt UpdateApp2RouteTable.Arn
+
+  UpdateEgressRouteTable:
+      Type: AWS::Lambda::Function
+      DependsOn: EgressVpcAttachment
+      Properties:
+        Description: Update Egress Route Tables
+        Handler: index.handler
+        Code:
+          S3Bucket: !Ref S3BucketName
+          S3Key: !Ref LambdaPackageName
+        MemorySize: 128
+        Role: !GetAtt LambdaCustomRole.Arn
+        Runtime: python3.6
+        Timeout: 30
+        Environment:
+          Variables:
+            TRANSITGTW: !Ref TransitGateway
+            RT: !Ref EgressRouteTable
+            CIDR: !Ref EgressPublicCidr
+
+  CustomResourceUpdateEgressRT:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt UpdateEgressRouteTable.Arn
+
+Outputs:
+  Name:
+    Value: !Ref AWS::StackName
+  TransitGateway:
+    Value: !Ref TransitGateway
