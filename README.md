@@ -19,6 +19,10 @@ The python code is intended to be run as a lambda custom resource, called by the
 
 These libraries are listed within the requirements.txt file, which can be used as part of a pip install to create the entire package.
 
+The purpose of the cloudformation and code is to create this architecture...
+
+![Network Architecture](images/diagram.png)
+
 ### How to create the lambda package
 
 For the uninitiated, here is what i did to create the lambda package:
