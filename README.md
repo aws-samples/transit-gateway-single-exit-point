@@ -2,7 +2,7 @@
 
 ### Introduction
 
-The cloudformation and python scripts in this project are intended to be used in support of the AWS blog article here:
+The cloudformation and python scripts in this project are intended to be used in support of the AWS blog article here: https://aws.amazon.com/blogs/networking-and-content-delivery/creating-a-single-internet-exit-point-from-multiple-vpcs-using-aws-transit-gateway/
 
 The files contained here are as follows:
 
