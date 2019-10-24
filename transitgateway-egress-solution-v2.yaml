@@ -2,27 +2,12 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: The template creates TGW & an Egress VPC for internet.
 
   It is a heavily modified version of the original template, created by shkahma@ which can be found here
-  https://github.com/aws-samples/aws-transit-gateway-egress-vpc-demo
+  https://github.com/aws-samples/aws-transit-gateway-egress-vpc-demo. Most of the modification is because
+  cloudformation now supports the creation of routes within a VPC route table, where the target is a
+  transit gateway
 
-  In order to add routes to the VPC route tables, a lambda function needs to be called as CloudFormation
-  cannot implement that function at present. To do this, a package containing all the appropriate libraries
-  plus the python code is zipped up and placed in an S3 bucket. A custom resource then retrieves that zipped
-  file and deploys it via lambda.
-
-  Please make sure that you have created the bucket and uploaded the package file before running the CloudFormation.
-
-  Also make sure that the names are correct. These can be adjusted if necassary in the parameters default section,
-  or can be entered at run time.
 
 Parameters:
-
-  S3BucketName:
-    Type: String
-    Default: 'your-lambda-functions'
-
-  LambdaPackageName:
-    Type: String
-    Default: 'update-route-table.zip'
 
   AppCidr:
     Description: Default route for adding to app VPCs route tables
@@ -446,9 +431,9 @@ Resources:
       DestinationCidrBlock: 172.16.0.0/12
       TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
 
-# We have not added a 192.168/16 black hole as for testing you may want to put an instance in the public subnet.
+# We have not added a 192.168.0.0/16 black hole as for testing you may want to put an instance in the public subnet.
 # However, if you are only using the egress vpc as a route out, with a NAT gateway or similar proxy/NAT function,
-# then you can add the bloack hole for 192.168/16 as well
+# then you can add the bloack hole for 192.168.0.0/16 as well
 
 #  AppBlackhole192Route:
 #    Type: "AWS::EC2::TransitGatewayRoute"
@@ -490,120 +475,32 @@ Resources:
       TransitGatewayAttachmentId: !Ref App2Attachment
       TransitGatewayRouteTableId: !Ref AppTransitGatewayRouteTable
 
-# This code adds routes to VPC route tables using lambda since cloudformation can't add a transit gateway as a destination.
-# First create the role that will run the lambda code.
-
-  LambdaCustomRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          -
-            Effect: Allow
-            Principal:
-              Service: [lambda.amazonaws.com]
-            Action:
-              - sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-      Policies:
-        -
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              -
-                Effect: Allow
-                Action:
-                  - ec2:Describe*
-                  - ec2:CreateRoute
-                  - ec2:ReplaceRoute
-                  - ec2:DeleteRoute
-                  - ec2:UpdateRouteTable
-                  - ec2:AssociateRouteTable
-                  - ec2:ReplaceRouteTableAssociation
-                  - ec2:DisassociateRouteTable
-                  - logs:*
-                  - ram:*
-                Resource: "*"
-          PolicyName: LambdaPolicyTransitGateway
-
-# Then define the function, and pass it the variables to update the route table.
-# I have repeated this 3 times for the 3 route tables that need modifying, but you could edit the actual python Code
-# To pass the variables for all route tables in one go, and have the code cycle through the operation.
+# Update VPC route tables to point towards transit gateway for appropriate target CIDR ranges
 
   UpdateApp1RouteTable:
-      Type: AWS::Lambda::Function
-      DependsOn: App1Attachment
-      Properties:
-        Description: Update App Route Tables
-        Handler: index.handler
-        Code:
-          S3Bucket: !Ref S3BucketName
-          S3Key: !Ref LambdaPackageName
-        MemorySize: 128
-        Role: !GetAtt LambdaCustomRole.Arn
-        Runtime: python3.6
-        Timeout: 30
-        Environment:
-          Variables:
-            TRANSITGTW: !Ref TransitGateway
-            RT: !Ref App1RouteTable
-            CIDR: !Ref AppCidr
-
-  CustomResourceUpdateApp1RT:
-    Type: AWS::CloudFormation::CustomResource
+    Type: AWS::EC2::Route
+    DependsOn: App1Attachment
     Properties:
-      ServiceToken: !GetAtt UpdateApp1RouteTable.Arn
+      RouteTableId: !Ref App1RouteTable
+      DestinationCidrBlock: !Ref AppCidr
+      TransitGatewayId: !Ref TransitGateway
 
   UpdateApp2RouteTable:
-      Type: AWS::Lambda::Function
-      DependsOn: App2Attachment
-      Properties:
-        Description: Update App Route Tables
-        Handler: index.handler
-        Code:
-          S3Bucket: !Ref S3BucketName
-          S3Key: !Ref LambdaPackageName
-        MemorySize: 128
-        Role: !GetAtt LambdaCustomRole.Arn
-        Runtime: python3.6
-        Timeout: 30
-        Environment:
-          Variables:
-            TRANSITGTW: !Ref TransitGateway
-            RT: !Ref App2RouteTable
-            CIDR: !Ref AppCidr
-
-  CustomResourceUpdateApp2RT:
-    Type: AWS::CloudFormation::CustomResource
+    Type: AWS::EC2::Route
+    DependsOn: App2Attachment
     Properties:
-      ServiceToken: !GetAtt UpdateApp2RouteTable.Arn
+       RouteTableId: !Ref App2RouteTable
+       DestinationCidrBlock: !Ref AppCidr
+       TransitGatewayId: !Ref TransitGateway
 
   UpdateEgressRouteTable:
-      Type: AWS::Lambda::Function
-      DependsOn: EgressVpcAttachment
-      Properties:
-        Description: Update Egress Route Tables
-        Handler: index.handler
-        Code:
-          S3Bucket: !Ref S3BucketName
-          S3Key: !Ref LambdaPackageName
-        MemorySize: 128
-        Role: !GetAtt LambdaCustomRole.Arn
-        Runtime: python3.6
-        Timeout: 30
-        Environment:
-          Variables:
-            TRANSITGTW: !Ref TransitGateway
-            RT: !Ref EgressRouteTable
-            CIDR: !Ref EgressPublicCidr
-
-  CustomResourceUpdateEgressRT:
-    Type: AWS::CloudFormation::CustomResource
+    Type: AWS::EC2::Route
+    DependsOn: EgressVpcAttachment
     Properties:
-      ServiceToken: !GetAtt UpdateEgressRouteTable.Arn
+       RouteTableId: !Ref EgressRouteTable
+       DestinationCidrBlock: !Ref EgressPublicCidr
+       TransitGatewayId: !Ref TransitGateway
+
 
 Outputs:
   Name:
